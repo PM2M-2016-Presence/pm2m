@@ -3,54 +3,81 @@
 //needed for library
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
-#include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
 
 #include "EmonLib.h"             // Include Emon Library
 
 EnergyMonitor emon1;             // Create an instance
 const int ANALOG_PIN = A0; // The only analog pin on the Thing
 
+const char host[] = "ec2-52-29-210-27.eu-central-1.compute.amazonaws.com";
+const int port = 80;
+const char nodename[] = "sct013";
+const char apiKey[] = "&apikey=7c9ec81c6a4d7344489b84fd54d32a50";
+
+const char* ssid     = "Livebox-3294";
+const char* password = "E9D45C9A35245222FDE9DCD973";
+
 void setup()
 {
   Serial.begin(115200);
+  delay(10);
 
-  WiFiManager wifiManager;
-  wifiManager.autoConnect("AutoConnectAP");
+  // We start by connecting to a WiFi network
 
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
   emon1.current(A0, 29.1);       // Current: input pin, calibration.
 }
 
-const char* host = "192.168.1.20";
-const int port = 3000;
-
 void loop()
 {
+  Serial.print("waiting a delay\n");
+  delay(5000);
 
-  delay(1000);
+  Serial.print("connecting to ");
+  Serial.println(host);
 
-  long vcc = emon1.readVcc();
   double Irms = emon1.calcIrms(1480);  // Calculate Irms only
+  Serial.println("begin loop");
 
+  // Use WiFiClient class to create TCP connections
   WiFiClient client;
-  if (!client.connect(host, port))
-  {
-   return;
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort)) {
+    Serial.println("connection failed");
+    return;
   }
 
-  String url = "/puissance/" + String(Irms * 1.414235 * 235 / 10 );
-  //- See more at: http://www.esp8266.com/viewtopic.php?f=29&t=3375#sthash.AgUTirw2.dpuf;
-  String request =  "GET " +
-                     url + " HTTP/1.1\r\n" +
-                    "Host: " + host + "\r\n" +
-                    "Connection: close\r\n\r\n";
+  // This will send the request to the server
+  const String url =  "/input/post.json?node=" + String(nodename) + "&json={power:" + String(Irms * 1.414 * 235 / 10) + "}" + String(apiKey);
+  client.print("GET " + url + " HTTP/1.1\r\n" +
+               "Host:" + host + "\r\n" +
+               "Connection: close\r\n\r\n");
+  Serial.print("Requesting URL: ");
+  Serial.println(url);
 
-  client.print(request);
+  delay(10);
 
-  delay(1000);
-
-  while(client.available()){
-   String line = client.readStringUntil('\r');
-   //Serial.print(line); // Trying to avoid using serial
+  // Read all the lines of the reply from server and print them to Serial
+  while (client.available()) {
+    String line = client.readStringUntil('\r');
+    Serial.print(line);
   }
 
+  Serial.println();
+  Serial.println("closing connection");
 }
